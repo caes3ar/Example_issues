@@ -1,0 +1,50 @@
+name: issue2docker-reproduce-self-hosted
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_url:
+        description: 'URL of the issue'
+        required: true
+
+jobs:
+  reproduce_issue:
+      runs-on: self-hosted
+      steps:
+        - name: Run issue2docker
+          id: reproduce
+          run: |
+            # stop old container
+            if [ "$(${{ vars.DOCKER_COMMAND }} ps -aq)" ]; then
+              ${{ vars.DOCKER_COMMAND }} stop $(${{ vars.DOCKER_COMMAND }} ps -aq);
+            fi
+            # remove old contents to make sure a new image is built
+            ${{ vars.DOCKER_COMMAND }} system prune -a -f
+            # run issue2docker
+            ${{ vars.PYTHON_COMMAND }} ./issue2docker/issue2docker.py --container_tool ${{ vars.CONTAINER_TOOL }} --repo2docker_args "${{ vars.REPO2DOCKER_ARGS }}" ${{ github.event.inputs.issue_url }}
+            # wait for run to finish
+            sleep 5
+            # compare expected and actual result and write to results artifact
+            EXPECTED_RESULT=$(echo ./issue2docker/result.txt)
+            if ${{ vars.DOCKER_COMMAND }} ps -a --format '{{.Names}}' | grep -q "^issue2docker$"; then
+              ACTUAL_RESULT=$(${{ vars.DOCKER_COMMAND }} logs issue2docker)
+              if [ "$EXPECTED_RESULT" = "$ACTUAL_RESULT" ]; then
+                echo "Issue reproduced successfully."
+                echo "reproduce_result=1" >> $GITHUB_OUTPUT
+              else
+                echo "Issue could not be reproduced automatically."
+                 echo "reproduce_result=0" >> $GITHUB_OUTPUT
+              fi
+            else
+              echo "No code and/or expected result to reproduce."
+              echo "reproduce_result=2" >> $GITHUB_OUTPUT
+            fi
+        - name: Write artifact
+          run: |
+            echo "{\"issue_url\": \"${{ github.event.inputs.issue_url }}\", \"reproduce_result\": \"${{ steps.reproduce.outputs.reproduce_result }}\"}" > results.json
+        - name: Upload artifact
+          uses: actions/upload-artifact@v4
+          with:
+            name: reproduce-issue-results
+            path: |
+              results.json
