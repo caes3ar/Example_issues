@@ -1,0 +1,51 @@
+name: issue2docker-reproduce
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_url:
+        description: 'URL of the issue'
+        required: true
+
+jobs:
+  reproduce_issue:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Install repo2docker
+          run: pip install jupyter-repo2docker
+        - name: Install issue2docker
+          run: |
+            git clone -b prototype-demo-v2 https://gitlab.git.nrw/rpdm/projects-and-services/caesar/issue2docker.git
+            sudo apt install pandoc
+            cd issue2docker && pip install -r requirements.txt
+        - name: Run issue2docker
+          id: reproduce
+          run: |
+            # run issue2docker
+            python ./issue2docker/issue2docker.py --repo2docker_path repo2docker --container_tool docker ${{ github.event.inputs.issue_url }}
+            # wait for run to finish
+            sleep 5
+            # compare expected and actual result and write to results artifact
+            EXPECTED_RESULT=$(echo ./issue2docker/result.txt)
+            if docker ps -a --format '{{.Names}}' | grep -q "^issue2docker$"; then
+              ACTUAL_RESULT=$(docker logs issue2docker)
+              if [ "$EXPECTED_RESULT" = "$ACTUAL_RESULT" ]; then
+                echo "Issue reproduced successfully."
+                echo "reproduce_result=1" >> $GITHUB_OUTPUT
+              else
+                echo "Issue could not be reproduced automatically."
+                 echo "reproduce_result=0" >> $GITHUB_OUTPUT
+              fi
+            else
+              echo "No code and/or expected result to reproduce."
+              echo "reproduce_result=2" >> $GITHUB_OUTPUT
+            fi
+        - name: Write artifact
+          run: |
+            echo "{\"issue_url\": \"${{ github.event.inputs.issue_url }}\", \"reproduce_result\": \"${{ steps.reproduce.outputs.reproduce_result }}\"}" > results.json
+        - name: Upload artifact
+          uses: actions/upload-artifact@v4
+          with:
+            name: reproduce-issue-results
+            path: |
+              results.json
