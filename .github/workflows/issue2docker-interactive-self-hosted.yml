@@ -1,0 +1,35 @@
+name: issue2docker-interactive-self-hosted
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_url:
+        description: 'URL of the issue'
+        required: true
+
+jobs:
+  create_interactive_environment:
+    runs-on: self-hosted
+    steps:
+      - name: Run issue2docker
+        run: |
+          # stop old container
+          if [ "$(${{ vars.DOCKER_COMMAND }} ps -aq)" ]; then
+            ${{ vars.DOCKER_COMMAND }} stop $(${{ vars.DOCKER_COMMAND }} ps -aq);
+          fi
+          # remove old contents to make sure a new image is built
+          ${{ vars.DOCKER_COMMAND }} system prune -a -f
+          # run issue2docker
+          ${{ vars.PYTHON_COMMAND }} ./issue2docker/issue2docker.py --interactive --container_tool ${{ vars.CONTAINER_TOOL }} --repo2docker_args "${{ vars.REPO2DOCKER_ARGS }}" ${{ github.event.inputs.issue_url }}
+          # wait for environment to be created
+          sleep 5
+          # extract URL to JupyterHub and write to results artifact
+          LOG_OUTPUT=$(${{ vars.DOCKER_COMMAND }} logs issue2docker)
+          EXTRACTED_URL=$(echo "$LOG_OUTPUT" | grep -oP '(http://127.0.0.1[^\s]+|https://[^\s]+)' | head -n 1)
+          echo "{\"url\": \"$EXTRACTED_URL\", \"issue_url\": \"${{ github.event.inputs.issue_url }}\"}" > results.json
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: interactive-issue-results
+          path: |
+            results.json
