@@ -1,0 +1,36 @@
+name: issue2docker-interactive
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_url:
+        description: 'URL of the issue'
+        required: true
+
+jobs:
+  create_interactive_environment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install repo2docker
+        run: pip install jupyter-repo2docker
+      - name: Install issue2docker
+        run: |
+          git clone -b prototype-demo-v2 https://gitlab.git.nrw/rpdm/projects-and-services/caesar/issue2docker.git
+          sudo apt install pandoc
+          cd issue2docker && pip install -r requirements.txt
+      - name: Run issue2docker
+        run: |
+          # run issue2docker
+          python ./issue2docker/issue2docker.py --repo2docker_path repo2docker --interactive --container_tool docker ${{ github.event.inputs.issue_url }}
+          # wait for environment to be created
+          sleep 5
+          # extract URL to JupyterHub and write to results artifact
+          LOG_OUTPUT=$(docker logs issue2docker)
+          EXTRACTED_URL=$(echo "$LOG_OUTPUT" | grep -oP '(http://127.0.0.1[^\s]+|https://[^\s]+)' | head -n 1)
+          echo "{\"url\": \"$EXTRACTED_URL\", \"issue_url\": \"${{ github.event.inputs.issue_url }}\"}" > results.json
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: interactive-issue-results
+          path: |
+            results.json
